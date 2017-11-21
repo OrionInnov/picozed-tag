@@ -2,10 +2,10 @@
 
 import argparse
 
-from .tag import main as main_tag
+from .tag import main
 
 
-def main():
+if __name__ == "__main__":
 
     # argparse
     parser = argparse.ArgumentParser(description="Configure and execute the anchor daemon.")
@@ -18,9 +18,4 @@ def main():
     # parse arguments
     args = parser.parse_args()
 
-    # call appropriate daemon
-    main_tag(args)
-
-
-if __name__ == "__main__":
-    main()
+    main(args)
