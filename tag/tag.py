@@ -27,21 +27,21 @@ TX_GAIN_VALUE = 0
 
 class PicoZedSDR1(object):
 
-    def __init__(self, bandwidth, samp_rate, center_freq, buff_size):
+    def __init__(self, bandwidth, samp_rate, cntr_freq, buff_size):
 
         self.bandwidth = bandwidth
         self.samp_rate = samp_rate
-        self.center_freq = center_freq
+        self.cntr_freq = cntr_freq
         self.buff_size = buff_size
 
         # create local IIO context
         self.context = iio.Context()
 
         # configure the AD9361 devices
-        self._configure_ad9361_phy()
-        self._create_buffer()
+        self._configure_ad9361_phy(bandwidth, samp_rate, cntr_freq)
+        self._create_buffer(buff_size)
 
-    def _configure_ad9361_phy(self):
+    def _configure_ad9361_phy(self, bandwidth, samp_rate, cntr_freq):
 
         # access physical devices
         self.device = self.context.find_device(DEVICE_NAME)
@@ -58,37 +58,33 @@ class PicoZedSDR1(object):
 
         # set channel attributes
         chan.attrs["rf_port_select"].value = TX_PORT_SELECT
-        chan.attrs["rf_bandwidth"].value = str(self.bandwidth)
-        chan.attrs["sampling_frequency"].value = str(self.samp_rate)
+        chan.attrs["rf_bandwidth"].value = str(bandwidth)
+        chan.attrs["sampling_frequency"].value = str(samp_rate)
 
         # set LO channel attributes
-        chan_lo.attrs["frequency"].value = str(self.center_freq)
+        chan_lo.attrs["frequency"].value = str(cntr_freq)
 
         # TODO(liuf): gain value must be set again (for some reason)
         chan.attrs["hardwaregain"].value = str(TX_GAIN_VALUE)
 
-    def _create_buffer(self):
+    def _create_buffer(self, buff_size):
 
-        self.device_tx = self.context.find_device(DEVICE_TX_NAME)
+        device = self.context.find_device(DEVICE_TX_NAME)
 
         # configure master streaming devices
         # 1x1 SDR contains only two channels
         for n in range(2):
             name = "voltage{0}".format(n)
-            chan = self.device_tx.find_channel(name, is_output=True)
+            chan = device.find_channel(name, is_output=True)
             chan.enabled = True
 
         # create buffer
-        self.buffer_tx = iio.Buffer(self.device_tx, self.buff_size, 
-                                    cyclic=True)
+        self.buffer_tx = iio.Buffer(device, buff_size, cyclic=True)
 
     def push_samples(self, i_data, q_data):
         """
             Pushes a set of I/Q data to the buffer.
         """
-
-        assert i_data.size == q_data.size, "I length != Q length"
-        assert i_data.size <= self.buff_size, "input data too long"
 
         # scale I and Q data
         i_data = i_data / i_data.max() * 32767
@@ -117,22 +113,20 @@ def main(args):
     tag_num = args.tag_num
     bandwidth = args.bandwidth
     samp_rate = args.samp_rate
-    center_freq = args.center_freq
+    cntr_freq = args.cntr_freq
     period = args.period
 
     # load bits to transmit
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    seqs_path = os.path.join(dir_path, "seqs_4095.npy")
+    seqs_path = os.path.join(dir_path, "seqs.npy")
     bits = np.load(seqs_path)[tag_num,:]
 
     # compute buffer size given transmission period
     buff_size = int(np.rint(args.period * samp_rate))
     buff_size = max(buff_size, bits.size)
 
-    # create the PicoZed SDR object
-    picozed = PicoZedSDR1(bandwidth, samp_rate, center_freq, buff_size)
-
-    # transmit signal (TX uses 12-bit DAC in 16-bit format)
+    # create the PicoZed SDR object and transmit signal
+    picozed = PicoZedSDR1(bandwidth, samp_rate, cntr_freq, buff_size)
     picozed.push_samples(bits, bits)
 
     # block for cyclic buffer
